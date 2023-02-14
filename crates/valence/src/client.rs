@@ -27,6 +27,7 @@ use valence_protocol::{
 use crate::dimension::DimensionId;
 use crate::entity::data::Player;
 use crate::entity::{velocity_to_packet_units, EntityStatus, McEntity};
+use crate::equipment::Equipments;
 use crate::instance::Instance;
 use crate::packet::WritePacket;
 use crate::server::{NewClientInfo, Server};
@@ -591,6 +592,7 @@ pub(crate) fn update_clients(
     mut clients: Query<(Entity, &mut Client, Option<&McEntity>)>,
     instances: Query<&Instance>,
     entities: Query<&McEntity>,
+    equipments: Query<&Equipments>,
 ) {
     // TODO: what batch size to use?
     clients.par_for_each_mut(16, |(entity_id, mut client, self_entity)| {
@@ -601,6 +603,7 @@ pub(crate) fn update_clients(
                 entity_id,
                 &instances,
                 &entities,
+                &equipments,
                 &server,
             ) {
                 client.write_packet(&DisconnectPlay {
@@ -627,6 +630,7 @@ fn update_one_client(
     _self_id: Entity,
     instances: &Query<&Instance>,
     entities: &Query<&McEntity>,
+    equipments: &Query<&Equipments>,
     server: &Server,
 ) -> anyhow::Result<()> {
     let Ok(instance) = instances.get(client.instance) else {
@@ -767,6 +771,7 @@ fn update_one_client(
                                 &mut client.enc,
                                 entity.old_position(),
                                 &mut client.scratch,
+                                equipments.get(id).ok(),
                             );
                         }
                     }
@@ -844,6 +849,7 @@ fn update_one_client(
                             &mut client.enc,
                             entity.position(),
                             &mut client.scratch,
+                            equipments.get(id).ok(),
                         );
                     }
                 }
@@ -897,6 +903,7 @@ fn update_one_client(
                             &mut client.enc,
                             entity.position(),
                             &mut client.scratch,
+                            equipments.get(id).ok(),
                         );
                     }
                 }
