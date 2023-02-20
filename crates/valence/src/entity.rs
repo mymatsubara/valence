@@ -688,7 +688,7 @@ impl McEntity {
             if !equipments.is_empty() {
                 writer.write_packet(&SetEquipment {
                     entity_id,
-                    equipment: equipments.equipments().clone(),
+                    equipment: equipments.equiped().clone(),
                 })
             }
         }

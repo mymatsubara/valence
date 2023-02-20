@@ -7,15 +7,8 @@ use valence_protocol::{packets::s2c::set_equipment::EquipmentEntry, ItemStack};
 use crate::prelude::*;
 use crate::view::ChunkPos;
 
-/// ECS component to be added for entities with equipments.
-///
-/// Equipment updates managed by [update_equipment].
-#[derive(Component, Default, PartialEq, Debug)]
-pub struct Equipments {
-    equipments: Vec<EquipmentEntry>,
-    /// Bit set with the modified equipment slots
-    modified_slots: u8,
-}
+/// Number of equipment slots
+pub const EQUIPMENT_SLOTS: usize = 6;
 
 #[derive(Copy, Clone)]
 pub enum EquipmentSlot {
@@ -27,6 +20,16 @@ pub enum EquipmentSlot {
     Helmet,
 }
 
+/// ECS component to be added for entities with equipments.
+///
+/// Equipment updates managed by [update_equipment].
+#[derive(Component, Default, PartialEq, Debug)]
+pub struct Equipments {
+    equipments: [Option<Box<EquipmentEntry>>; EQUIPMENT_SLOTS],
+    /// Bit set with the modified equipment slots
+    modified_slots: u8,
+}
+
 impl Equipments {
     pub fn new() -> Equipments {
         Equipments::default()
@@ -34,50 +37,48 @@ impl Equipments {
 
     /// Set an equipment slot with an item stack
     pub fn set(&mut self, item: ItemStack, slot: EquipmentSlot) {
-        if let Some(equip) = self.get_mut(slot) {
-            equip.item = Some(item);
-        } else {
-            self.equipments.push(EquipmentEntry {
-                item: Some(item),
-                slot: slot.into(),
-            });
-        }
+        let slot_idx: usize = slot.into();
+        self.equipments[slot_idx] = Some(Box::new(EquipmentEntry {
+            slot: slot_idx as i8,
+            item: Some(item),
+        }));
 
         self.set_modified_slot(slot);
     }
 
     /// Remove all equipments
     pub fn clear(&mut self) {
-        for equip in self.equipments.iter() {
-            self.modified_slots |= 1 << equip.slot as u8;
+        for slot in self.equipments.iter_mut() {
+            if let Some(equip) = slot {
+                self.modified_slots |= 1 << equip.slot as u8;
+                *slot = None;
+            }
         }
-
-        self.equipments.clear();
     }
 
     /// Remove an equipment from a slot and return it if present
     pub fn remove(&mut self, slot: EquipmentSlot) -> Option<EquipmentEntry> {
-        let slot: i8 = slot.into();
+        let slot_idx: usize = slot.into();
 
-        if let Some(idx) = self.equipments.iter().position(|equip| equip.slot == slot) {
-            Some(self.equipments.remove(idx))
+        if let Some(equipment) = (&mut self.equipments[slot_idx]).take() {
+            self.set_modified_slot(slot);
+            Some(*equipment)
         } else {
             None
         }
     }
 
-    pub fn get_mut(&mut self, slot: EquipmentSlot) -> Option<&mut EquipmentEntry> {
-        let slot: i8 = slot.into();
-        self.equipments.iter_mut().find(|equip| equip.slot == slot)
+    pub fn get(&self, slot: EquipmentSlot) -> Option<Box<EquipmentEntry>> {
+        let slot_idx: usize = slot.into();
+        if let Some(equipment) = self.equipments[slot_idx] {
+            Some(equipment)
+        } else {
+            None
+        }
     }
 
-    pub fn get(&self, slot: EquipmentSlot) -> Option<&EquipmentEntry> {
-        let slot: i8 = slot.into();
-        self.equipments.iter().find(|equip| equip.slot == slot)
-    }
-
-    pub fn equipments(&self) -> &Vec<EquipmentEntry> {
-        &self.equipments
+    pub fn equiped(&self) -> impl Iterator<Item = &Box<EquipmentEntry>> + '_ {
+        self.equipments.iter().filter_map(|equip| equip.as_ref())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -90,17 +91,19 @@ impl Equipments {
 
     fn iter_modified_equipments(&self) -> impl Iterator<Item = EquipmentEntry> + '_ {
         self.iter_modified_slots().map(|slot| {
-            self.get(slot).cloned().unwrap_or_else(|| EquipmentEntry {
-                slot: slot.into(),
-                item: None,
-            })
+            self.get(slot)
+                .map(|equip| *equip)
+                .unwrap_or_else(|| EquipmentEntry {
+                    slot: slot.into(),
+                    item: None,
+                })
         })
     }
 
     fn iter_modified_slots(&self) -> impl Iterator<Item = EquipmentSlot> {
         let modified_slots = self.modified_slots;
 
-        (0..=5).filter_map(move |slot: i8| {
+        (0..EQUIPMENT_SLOTS).filter_map(move |slot| {
             if modified_slots & (1 << slot) != 0 {
                 Some(EquipmentSlot::try_from(slot).unwrap())
             } else {
@@ -110,8 +113,8 @@ impl Equipments {
     }
 
     fn set_modified_slot(&mut self, slot: EquipmentSlot) {
-        let shifts: i8 = slot.into();
-        self.modified_slots |= 1 << (shifts as u8);
+        let shifts: usize = slot.into();
+        self.modified_slots |= 1 << shifts;
     }
 
     fn clear_modified_slot(&mut self) {
@@ -119,11 +122,11 @@ impl Equipments {
     }
 }
 
-impl TryFrom<i8> for EquipmentSlot {
+impl TryFrom<u8> for EquipmentSlot {
     type Error = &'static str;
 
     /// Convert from `id` according to https://wiki.vg/Protocol#Set_Equipment
-    fn try_from(id: i8) -> Result<Self, Self::Error> {
+    fn try_from(id: u8) -> Result<Self, Self::Error> {
         let slot = match id {
             0 => EquipmentSlot::MainHand,
             1 => EquipmentSlot::OffHand,
@@ -138,7 +141,23 @@ impl TryFrom<i8> for EquipmentSlot {
     }
 }
 
-impl From<EquipmentSlot> for i8 {
+impl TryFrom<usize> for EquipmentSlot {
+    type Error = &'static str;
+
+    fn try_from(id: usize) -> Result<Self, Self::Error> {
+        EquipmentSlot::try_from(id as u8)
+    }
+}
+
+impl TryFrom<i8> for EquipmentSlot {
+    type Error = &'static str;
+
+    fn try_from(id: i8) -> Result<Self, Self::Error> {
+        EquipmentSlot::try_from(id as u8)
+    }
+}
+
+impl From<EquipmentSlot> for u8 {
     /// Convert to `id` according to https://wiki.vg/Protocol#Set_Equipment
     fn from(slot: EquipmentSlot) -> Self {
         match slot {
@@ -149,6 +168,18 @@ impl From<EquipmentSlot> for i8 {
             EquipmentSlot::Chestplate => 4,
             EquipmentSlot::Helmet => 5,
         }
+    }
+}
+
+impl From<EquipmentSlot> for i8 {
+    fn from(slot: EquipmentSlot) -> Self {
+        EquipmentSlot::from(slot) as Self
+    }
+}
+
+impl From<EquipmentSlot> for usize {
+    fn from(slot: EquipmentSlot) -> Self {
+        EquipmentSlot::from(slot) as Self
     }
 }
 
@@ -198,7 +229,7 @@ mod test {
         assert_eq!(
             equipments,
             Equipments {
-                equipments: vec![],
+                equipments: [None, None, None, None, None, None],
                 modified_slots: 0
             }
         );
@@ -207,13 +238,30 @@ mod test {
         let slot = EquipmentSlot::Boots;
         equipments.set(item.clone(), slot);
 
+        if let Some(equip) = equipments.get(EquipmentSlot::Boots) {
+            assert_eq!(
+                equip,
+                Box::new(EquipmentEntry {
+                    slot: slot.into(),
+                    item: Some(item)
+                })
+            );
+        }
+
         assert_eq!(
             equipments,
             Equipments {
-                equipments: vec![EquipmentEntry {
-                    slot: slot.into(),
-                    item: Some(item)
-                }],
+                equipments: [
+                    None,
+                    None,
+                    Some(Box::new(EquipmentEntry {
+                        slot: slot.into(),
+                        item: Some(item)
+                    })),
+                    None,
+                    None,
+                    None
+                ],
                 modified_slots: 0b100
             }
         );
@@ -223,7 +271,7 @@ mod test {
         assert_eq!(
             equipments,
             Equipments {
-                equipments: vec![],
+                equipments: [None, None, None, None, None, None],
                 modified_slots: 0b100
             }
         );
