@@ -371,4 +371,51 @@ mod test {
 
         Ok(())
     }
+
+    #[test]
+    fn test_if_armor_stand_spawn_packet_is_sent_correctly() -> anyhow::Result<()> {
+        let mut app = App::new();
+        let (client_ent, mut client_helper) = scenario_single_client(&mut app);
+
+        // Setup server
+        let mut instance = app
+            .world
+            .resource::<Server>()
+            .new_instance(DimensionId::default());
+        instance.insert_chunk([0, 0], Default::default());
+        let instance = app.world.spawn(instance);
+        let instance_entity = instance.id();
+
+        // Setup client
+        let mut client = app.world.get_mut::<Client>(client_ent).unwrap();
+        let uuid = client.uuid();
+        client.set_position([0.0, 0.0, 0.0]);
+        client.set_instance(instance_entity);
+        let mut client_ent_mut = app
+            .world
+            .get_entity_mut(client_ent)
+            .expect("should have client component");
+        client_ent_mut.insert(McEntity::with_uuid(EntityKind::Player, client_ent, uuid));
+
+        // Process a tick to get past the "on join" logic.
+        app.update();
+        client_helper.clear_sent();
+
+        // Spawn armor stand
+        let equipment = Equipment::default();
+        let mut mc_entity = McEntity::new(EntityKind::ArmorStand, instance_entity);
+        mc_entity.set_position([0.0, 0.0, 0.0]);
+        if let TrackedData::ArmorStand(armor_stand) = mc_entity.data_mut() {
+            armor_stand.set_no_gravity(true);
+        }
+
+        let armor_stand = app.world.spawn((mc_entity, equipment));
+
+        app.update();
+
+        let sent_packets = client_helper.collect_sent();
+        dbg!(sent_packets);
+
+        Ok(())
+    }
 }

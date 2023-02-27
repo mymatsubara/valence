@@ -1,4 +1,3 @@
-use bevy_app::CoreStage;
 use rand::Rng;
 use valence::client::despawn_disconnected_clients;
 use valence::client::event::default_event_handler;

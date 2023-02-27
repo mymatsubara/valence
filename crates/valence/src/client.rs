@@ -806,7 +806,7 @@ fn update_one_client(
                             // movement packets will not set the entity to the wrong position.
                             entity.write_init_packets(
                                 &mut client.enc,
-                                entity.old_position(),
+                                entity.position(),
                                 &mut client.scratch,
                                 equipment.get(id).ok(),
                             );
