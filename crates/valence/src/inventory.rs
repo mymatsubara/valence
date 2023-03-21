@@ -453,12 +453,6 @@ pub(crate) fn handle_click_container(
 
         // validate the window id
         if (event.window_id == 0) != open_inventory.is_none() {
-            warn!(
-                "Client sent a click with an invalid window id for current state: window_id = {}, \
-                 open_inventory present = {}",
-                event.window_id,
-                open_inventory.is_some()
-            );
             continue;
         }
 
